@@ -4,8 +4,14 @@ Tests the manual reminder trigger endpoint with mocked scheduler
 """
 
 import unittest
+import sys
+import os
 from unittest.mock import patch, Mock
 from fastapi.testclient import TestClient
+
+# Add project root to Python path for imports
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from app import app
 
 

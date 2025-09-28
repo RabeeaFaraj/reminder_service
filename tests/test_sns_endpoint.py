@@ -1,11 +1,17 @@
 """
-Unit tests for /test/sns endpoint
-Tests the SNS test endpoint controller logic with mocked SNS
+Unit tests for /test/sns endpoint  
+Tests SNS test endpoint with mocked SNS notifier
 """
 
 import unittest
+import sys
+import os
 from unittest.mock import patch, Mock
 from fastapi.testclient import TestClient
+
+# Add project root to Python path for imports
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from app import app
 
 

@@ -4,8 +4,14 @@ Tests the core SNS notification functionality with proper mocking
 """
 
 import unittest
+import sys
+import os
 from unittest.mock import patch, Mock
 from datetime import datetime
+
+# Add project root to Python path for imports
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from sns_notifier import SNSNotifier
 
 
