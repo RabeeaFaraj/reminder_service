@@ -1,0 +1,94 @@
+services:
+  # MongoDB for Wekan (Docker version)
+  mongodb:
+    image: mongo:6.0
+    container_name: reminder-service-mongodb
+    restart: unless-stopped
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=admin
+      - MONGO_INITDB_ROOT_PASSWORD=admin123
+      - MONGO_INITDB_DATABASE=wekan
+    # volumes:
+    #   - mongodb_data:/data/db
+    #   - mongodb_config:/data/configdb
+    networks:
+      - wekan-network
+    ports:
+      - "27018:27017"  # Use different port to avoid conflict
+
+  # Wekan board application (Docker version)
+  wekan:
+    image: quay.io/wekan/wekan:latest
+    container_name: reminder-service-wekan
+    restart: unless-stopped
+    depends_on:
+      - mongodb
+    environment:
+      # MongoDB connection
+      - MONGO_URL=mongodb://admin:admin123@mongodb:27017/wekan?authSource=admin
+      
+      # Wekan configuration
+      - ROOT_URL=http://localhost:3001
+      # - MAIL_URL=smtp://localhost:25
+      # - MAIL_FROM=wekan@localhost
+      - WITH_API=true
+      - RICHER_CARD_COMMENT_EDITOR=true
+      - CARD_OPENED_WEBHOOK_ENABLED=false
+      - BIGEVENTS_PATTERN=NONE
+      - BROWSER_POLICY_ENABLED=true
+      
+      # Performance settings
+      - METEOR_SETTINGS={"public":{"sendStatistics":false},"defaultAuthenticationMethod":"default"}
+    ports:
+      - "3001:8080"  # Use different port (3001) to avoid conflict with your main Wekan
+    networks:
+      - wekan-network
+    # volumes:
+    #   - wekan_files:/data
+
+  # Reminder Service
+  reminder-service:
+    image: rabeeafaraj/reminder-service:${REMINDER_SERVICE_VERSION:-0.0.1}
+    container_name: reminder-service
+    restart: unless-stopped
+    environment:
+      # Wekan connection (connect to host's localhost:80)
+      - WEKAN_URL=http://host.docker.internal:80
+      - WEKAN_USER=${WEKAN_USER}
+      - WEKAN_PASSWORD=${WEKAN_PASSWORD}
+      
+      # AWS SNS configuration
+      - AWS_REGION=${AWS_REGION}
+      - SNS_TOPIC_ARN=${SNS_TOPIC_ARN}
+      
+      # Service configuration
+      - SCHEDULER_INTERVAL_MINUTES=${SCHEDULER_INTERVAL_MINUTES:-1}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - TZ=Asia/Jerusalem
+      - HOME=/home/app  # Ensure AWS credential chain works with app user
+    ports:
+      - "8000:8000"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"  # Allow access to host's localhost
+    networks:
+      - wekan-network
+    volumes:
+      - ./logs:/app/logs  # Optional: for persistent logs
+      - ~/.aws:/home/app/.aws:ro  # Mount AWS credentials to app user's home directory
+    env_file:
+      - .env
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+networks:
+  wekan-network:
+    driver: bridge
+
+# volumes:
+#   mongodb_data:
+#   mongodb_config:
+#   wekan_files:

@@ -1,0 +1,27 @@
+.PHONY: test test-sns test-status test-endpoints install clean
+
+# Install dependencies
+install:
+	pip install -r requirements.txt
+
+# Run all unittest test cases
+test:
+	python -m unittest discover tests -v
+
+# Run specific test files
+test-sns:
+	python -m unittest tests.test_sns_notifier -v
+
+test-status:
+	python -m unittest tests.test_status_endpoint -v
+
+test-endpoints:
+	python -m unittest tests.test_sns_endpoint tests.test_reminders_run_endpoint -v
+
+# Run with test runner
+test-runner:
+	cd tests && python run_tests.py
+
+# Clean up
+clean:
+	rm -rf .pytest_cache __pycache__ tests/__pycache__
