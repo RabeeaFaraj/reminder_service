@@ -6,13 +6,13 @@ Tests the SNS test endpoint controller logic with mocked SNS
 import unittest
 from unittest.mock import patch, Mock
 from fastapi.testclient import TestClient
+from app import app
 
 
 class TestSNSEndpoint(unittest.TestCase):
     
     def setUp(self):
         """Set up test fixtures before each test method."""
-        from app import app
         self.client = TestClient(app)
     
     @patch('app.SNSNotifier')  # Patch where it's used in app.py

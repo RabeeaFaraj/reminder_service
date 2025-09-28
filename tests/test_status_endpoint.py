@@ -6,6 +6,7 @@ Tests the status endpoint controller logic with mocked dependencies
 import unittest
 from unittest.mock import patch, Mock
 from fastapi.testclient import TestClient
+from app import app
 
 
 class TestStatusEndpoint(unittest.TestCase):
@@ -13,7 +14,6 @@ class TestStatusEndpoint(unittest.TestCase):
     def setUp(self):
         """Set up test fixtures before each test method."""
         # Import app after setting up any necessary patches
-        from app import app
         self.client = TestClient(app)
     
     @patch('scheduler.ReminderScheduler')

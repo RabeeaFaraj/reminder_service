@@ -45,7 +45,7 @@ jobs:
     - name: Run unit tests
       run: |
         # Run your unittest files
-        python -m unittest discover tests -v
+        pytest -v
         
     - name: Code linting with flake8
       run: |

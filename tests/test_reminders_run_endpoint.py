@@ -6,13 +6,13 @@ Tests the manual reminder trigger endpoint with mocked scheduler
 import unittest
 from unittest.mock import patch, Mock
 from fastapi.testclient import TestClient
+from app import app
 
 
 class TestRemindersRunEndpoint(unittest.TestCase):
     
     def setUp(self):
         """Set up test fixtures before each test method."""
-        from app import app
         self.client = TestClient(app)
     
     @patch('app.scheduler')  # Mock the global scheduler variable
