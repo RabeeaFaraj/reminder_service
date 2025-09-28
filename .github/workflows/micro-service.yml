@@ -131,7 +131,7 @@ jobs:
         host: ${{ secrets.EC2_HOST }}
         username: ubuntu
         key: ${{ secrets.EC2_SSH_KEY }}
-        source: ".env.example"
+        source: ".env"
         target: "/home/ubuntu/reminder-service/"
 
     - name: Deploy to EC2
@@ -147,7 +147,7 @@ jobs:
           docker compose down || true
           
           # Setup environment file
-          cp .env.example .env
+          cp .env .env
           
           # Update .env with deployment values
           echo "REMINDER_SERVICE_VERSION=${{ steps.build_image.outputs.NEW_VERSION }}" >> .env
