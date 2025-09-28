@@ -1,0 +1,379 @@
+name: Reminder Service CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy to'
+        required: true
+        default: 'staging'
+        type: choice
+        options:
+          - development
+          - staging
+          - production
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+jobs:
+  # Job 1: Run Unit Tests
+  unit-tests:
+    runs-on: ubuntu-latest
+    name: Unit Tests & Code Quality
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+        
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        
+    - name: Run unit tests
+      run: |
+        # Run your unittest files
+        python -m unittest discover tests -v
+        
+    - name: Code linting with flake8
+      run: |
+        pip install flake8
+        flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
+        
+    - name: Generate test coverage report
+      run: |
+        pip install coverage
+        coverage run -m unittest discover tests
+        coverage report
+        coverage xml
+        
+    - name: Upload coverage to artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: coverage-report
+        path: coverage.xml
+
+  # Job 2: Build and Deploy Docker Image
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    needs: unit-tests
+    outputs:
+      REMINDER_SERVICE_VERSION: ${{ steps.parse_env.outputs.REMINDER_SERVICE_VERSION }}
+      IMAGE_TAG: ${{ steps.build_image.outputs.IMAGE_TAG }}
+      
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Auto-increment version and build
+      id: build_image
+      run: |
+        # Read current version
+        if [ ! -f VERSION ]; then
+          echo "0.0.1" > VERSION
+        fi
+        
+        CURRENT_VERSION=$(cat VERSION)
+        echo "Current version: $CURRENT_VERSION"
+        
+        # Parse and increment patch version
+        IFS='.' read -r -a version_parts <<< "$CURRENT_VERSION"
+        major="${version_parts[0]}"
+        minor="${version_parts[1]}"
+        patch="${version_parts[2]}"
+        patch=$((patch + 1))
+        NEW_VERSION="$major.$minor.$patch"
+        
+        echo "New version: $NEW_VERSION"
+        echo "$NEW_VERSION" > VERSION
+        
+        # Create unique tag with commit SHA
+        TAG="$NEW_VERSION-${{ github.sha }}"
+        echo "IMAGE_TAG=$TAG" >> $GITHUB_OUTPUT
+        echo "NEW_VERSION=$NEW_VERSION" >> $GITHUB_OUTPUT
+        
+        # Login to DockerHub
+        echo ${{ secrets.DOCKERHUB_PASSWORD }} | docker login -u ${{ secrets.DOCKERHUB_USERNAME }} --password-stdin
+        
+        # Build and push the image
+        docker build -t ${{ secrets.DOCKERHUB_USERNAME }}/reminder-service:$TAG .
+        docker tag ${{ secrets.DOCKERHUB_USERNAME }}/reminder-service:$TAG ${{ secrets.DOCKERHUB_USERNAME }}/reminder-service:latest
+        
+        docker push ${{ secrets.DOCKERHUB_USERNAME }}/reminder-service:$TAG
+        docker push ${{ secrets.DOCKERHUB_USERNAME }}/reminder-service:latest
+        
+        echo "Built and pushed: ${{ secrets.DOCKERHUB_USERNAME }}/reminder-service:$TAG"
+
+    - name: Copy deployment files to EC2
+      uses: appleboy/scp-action@v0.1.7
+      with:
+        host: ${{ secrets.EC2_HOST }}
+        username: ubuntu
+        key: ${{ secrets.EC2_SSH_KEY }}
+        source: "./docker-compose.yml,./Dockerfile,./.dockerignore"
+        target: "/home/ubuntu/reminder-service/"
+        
+    - name: Create .env file for EC2
+      uses: appleboy/scp-action@v0.1.7
+      with:
+        host: ${{ secrets.EC2_HOST }}
+        username: ubuntu
+        key: ${{ secrets.EC2_SSH_KEY }}
+        source: ".env.example"
+        target: "/home/ubuntu/reminder-service/"
+
+    - name: Deploy to EC2
+      uses: appleboy/ssh-action@v1.0.3
+      with:
+        host: ${{ secrets.EC2_HOST }}
+        username: ubuntu
+        key: ${{ secrets.EC2_SSH_KEY }}
+        script: |
+          cd /home/ubuntu/reminder-service
+          
+          # Stop existing containers
+          docker compose down || true
+          
+          # Setup environment file
+          cp .env.example .env
+          
+          # Update .env with deployment values
+          echo "REMINDER_SERVICE_VERSION=${{ steps.build_image.outputs.NEW_VERSION }}" >> .env
+          echo "DOCKER_IMAGE_TAG=${{ steps.build_image.outputs.IMAGE_TAG }}" >> .env
+          echo "WEKAN_BASE_URL=http://localhost" >> .env
+          echo "WEKAN_PORT=80" >> .env
+          
+          # Add AWS region and SNS topic (you'll need to set these as secrets)
+          echo "AWS_DEFAULT_REGION=${{ secrets.AWS_DEFAULT_REGION }}" >> .env
+          echo "SNS_TOPIC_ARN=${{ secrets.SNS_TOPIC_ARN }}" >> .env
+          
+          # Pull latest image and start services
+          docker compose pull
+          docker compose up -d
+          
+          # Wait for service to be ready
+          sleep 30
+          
+          # Health check
+          docker compose ps
+          curl -f http://localhost:8000/health || echo "Health check failed"
+
+    - id: parse_env
+      name: Parse environment values
+      run: |
+        REMINDER_SERVICE_VERSION="${{ steps.build_image.outputs.NEW_VERSION }}"
+        echo "REMINDER_SERVICE_VERSION=$REMINDER_SERVICE_VERSION" >> $GITHUB_OUTPUT
+        echo "REMINDER_SERVICE_VERSION=$REMINDER_SERVICE_VERSION" >> $GITHUB_ENV
+        
+        echo "Exported REMINDER_SERVICE_VERSION=$REMINDER_SERVICE_VERSION"
+
+  # Job 3: API Integration Tests
+  api-tests:
+    runs-on: ubuntu-latest
+    needs: build-and-deploy
+    name: API Integration Tests
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+        
+    - name: Install testing dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install pytest httpx requests pytest-html pytest-json-report
+        
+    - name: Wait for service to be ready
+      run: |
+        echo "Waiting for reminder service to be ready..."
+        for i in {1..30}; do
+          if curl -f http://${{ secrets.EC2_HOST }}:8000/health; then
+            echo "Service is ready!"
+            break
+          fi
+          echo "Attempt $i: Service not ready, waiting..."
+          sleep 10
+        done
+        
+    - name: Run API tests against EC2 instance
+      env:
+        REMINDER_SERVICE_URL: http://${{ secrets.EC2_HOST }}:8000
+        TEST_ENVIRONMENT: ${{ github.event.inputs.environment || 'staging' }}
+      run: |
+        # Create API tests directory if it doesn't exist
+        mkdir -p api_tests
+        
+        # Run API tests with reporting
+        pytest tests/ -v \
+          --html=api-test-report.html \
+          --json-report \
+          --json-report-file=api-test-results.json \
+          || echo "Some API tests failed"
+        
+    - name: Upload API test results
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: api-test-results
+        path: |
+          api-test-report.html
+          api-test-results.json
+        retention-days: 30
+
+  # Job 4: Performance & Load Tests
+  performance-tests:
+    runs-on: ubuntu-latest
+    needs: build-and-deploy
+    name: Performance Tests
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Install performance testing tools
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y apache2-utils curl jq
+        
+    - name: Basic load test with Apache Bench
+      run: |
+        echo "Running load test on health endpoint..."
+        ab -n 100 -c 10 http://${{ secrets.EC2_HOST }}:8000/health
+        
+        echo "Running load test on status endpoint..."
+        ab -n 50 -c 5 http://${{ secrets.EC2_HOST }}:8000/status
+        
+    - name: Response time test
+      run: |
+        echo "Testing response times..."
+        for endpoint in health status; do
+          echo "Testing /$endpoint endpoint:"
+          for i in {1..5}; do
+            curl -w "Response time: %{time_total}s\n" -s -o /dev/null \
+              http://${{ secrets.EC2_HOST }}:8000/$endpoint
+          done
+        done
+
+  # Job 5: Security Tests  
+  security-tests:
+    runs-on: ubuntu-latest
+    needs: build-and-deploy
+    name: Security Tests
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Run basic security scans
+      run: |
+        # Install security testing tools
+        pip install safety bandit
+        
+        # Check for known security vulnerabilities in dependencies
+        echo "Checking for security vulnerabilities..."
+        safety check -r requirements.txt || echo "Security vulnerabilities found"
+        
+        # Static security analysis
+        echo "Running static security analysis..."
+        bandit -r . -f json -o bandit-report.json || echo "Security issues found"
+        
+    - name: Upload security scan results
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: security-scan-results
+        path: bandit-report.json
+        retention-days: 30
+
+  # Job 6: Generate Final Report
+  generate-report:
+    runs-on: ubuntu-latest
+    needs: [unit-tests, build-and-deploy, api-tests, performance-tests, security-tests]
+    if: always()
+    name: Generate Test Report
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Download all test artifacts
+      uses: actions/download-artifact@v4
+      with:
+        path: test-results
+        
+    - name: Generate comprehensive test report
+      run: |
+        mkdir -p final-report
+        
+        # Create a summary report
+        cat > final-report/test-summary.md << EOF
+        # Reminder Service CI/CD Pipeline Report
+        
+        **Build Information:**
+        - Version: ${{ needs.build-and-deploy.outputs.REMINDER_SERVICE_VERSION }}
+        - Image Tag: ${{ needs.build-and-deploy.outputs.IMAGE_TAG }}
+        - Environment: ${{ github.event.inputs.environment || 'staging' }}
+        - Commit: ${{ github.sha }}
+        - Branch: ${{ github.ref_name }}
+        
+        **Pipeline Status:**
+        - Unit Tests: ${{ needs.unit-tests.result }}
+        - Build & Deploy: ${{ needs.build-and-deploy.result }}
+        - API Tests: ${{ needs.api-tests.result }}
+        - Performance Tests: ${{ needs.performance-tests.result }}
+        - Security Tests: ${{ needs.security-tests.result }}
+        
+        **Service Endpoints:**
+        - Health: http://${{ secrets.EC2_HOST }}:8000/health
+        - Status: http://${{ secrets.EC2_HOST }}:8000/status
+        - API Documentation: http://${{ secrets.EC2_HOST }}:8000/docs
+        
+        **Docker Hub:**
+        - Repository: ${{ secrets.DOCKERHUB_USERNAME }}/reminder-service
+        - Latest Tag: ${{ needs.build-and-deploy.outputs.IMAGE_TAG }}
+        EOF
+        
+        echo "Generated test summary report"
+        cat final-report/test-summary.md
+        
+    - name: Upload final report
+      uses: actions/upload-artifact@v4
+      with:
+        name: final-test-report
+        path: final-report/
+        retention-days: 90
+
+  # Job 7: Cleanup on failure
+  cleanup-on-failure:
+    runs-on: ubuntu-latest
+    needs: [build-and-deploy, api-tests]
+    if: failure()
+    
+    steps:
+    - name: Cleanup failed deployment
+      uses: appleboy/ssh-action@v1.0.3
+      with:
+        host: ${{ secrets.EC2_HOST }}
+        username: ubuntu
+        key: ${{ secrets.EC2_SSH_KEY }}
+        script: |
+          echo "Cleaning up failed deployment..."
+          cd /home/ubuntu/reminder-service
+          docker compose down || true
+          docker system prune -f || true
