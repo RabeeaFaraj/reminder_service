@@ -412,10 +412,24 @@ jobs:
         
     - name: Create Allure test results from pipeline data
       run: |
-        # No additional dependencies needed - using standard Python libraries
+        # Copy real test results from unit tests first
+        echo "Copying real test results from unit tests..."
+        if [ -d "test-results/unit-tests-allure-results" ]; then
+          cp -r test-results/unit-tests-allure-results/* allure-results/ 2>/dev/null || true
+          echo "✅ Copied $(ls test-results/unit-tests-allure-results/*.json 2>/dev/null | wc -l) real test result files"
+        else
+          echo "⚠️ No unit test results found"
+        fi
         
+        # Copy API test results if they exist
+        if [ -d "test-results/api-tests-allure-results" ]; then
+          cp -r test-results/api-tests-allure-results/* allure-results/ 2>/dev/null || true
+          echo "✅ Copied API test results"
+        fi
+        
+        # Now add pipeline results as a separate suite
         # Create a Python script to convert pipeline results to Allure format
-        cat > create_allure_results.py << 'EOF'
+        cat > create_pipeline_results.py << 'EOF'
         import json
         import os
         import uuid
@@ -429,11 +443,13 @@ jobs:
                 "uuid": test_uuid,
                 "historyId": name.replace(" ", "_").lower(),
                 "name": name,
-                "fullName": f"Pipeline.{name.replace(' ', '_')}",
+                "fullName": f"CI_CD_Pipeline.{name.replace(' ', '_')}",
                 "labels": [
-                    {"name": "suite", "value": "CI/CD Pipeline"},
-                    {"name": "story", "value": "Automated Testing"},
-                    {"name": "framework", "value": "GitHub Actions"}
+                    {"name": "suite", "value": "CI/CD Pipeline Jobs"},
+                    {"name": "story", "value": "Deployment Pipeline"},
+                    {"name": "framework", "value": "GitHub Actions"},
+                    {"name": "feature", "value": "Pipeline Execution"}
+                ],
                 ],
                 "status": status,
                 "statusDetails": {
@@ -510,8 +526,13 @@ jobs:
         print("Created Allure test results for all pipeline jobs")
         EOF
         
-        # Run the script to create test results
-        python create_allure_results.py
+        # Run the script to create pipeline test results
+        python create_pipeline_results.py
+        
+        echo "✅ Final results summary:"
+        echo "Real test results: $(ls allure-results/*-result.json 2>/dev/null | grep -v pipeline | wc -l)"
+        echo "Pipeline results: $(ls allure-results/*-result.json 2>/dev/null | grep pipeline | wc -l)"
+        echo "Total results: $(ls allure-results/*-result.json 2>/dev/null | wc -l)"
         
     - name: Generate Allure Report
       run: |
