@@ -48,7 +48,7 @@ services:
 
   # Reminder Service
   reminder-service:
-    image: rabeeafaraj/reminder-service:${REMINDER_SERVICE_VERSION:-0.0.1}
+    image: rabeeafaraj/reminder-service:${DOCKER_IMAGE_TAG}
     container_name: reminder-service
     restart: unless-stopped
     environment:
