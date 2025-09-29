@@ -48,6 +48,7 @@ jobs:
     - name: Run unit tests
       run: |
         # Run tests with Allure reporting
+        mkdir -p allure-results
         pytest -v --alluredir=allure-results
         
     - name: Upload Allure Results
@@ -544,14 +545,11 @@ jobs:
         fi    
         
     - name: Deploy Allure Report to GitHub Pages
-      if: github.ref == 'refs/heads/main'
       uses: peaceiris/actions-gh-pages@v4
       with:
         github_token: ${{ secrets.GITHUB_TOKEN }}
         publish_dir: allure-report
         publish_branch: gh-pages
-        destination_dir: allure-reports/${{ github.run_number }}
-        enable_jekyll: false
         allow_empty_commit: false
         force_orphan: true
         keep_files: false 
