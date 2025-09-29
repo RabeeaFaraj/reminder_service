@@ -333,6 +333,27 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
       
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+        
+    - name: Install Allure CLI
+      run: |
+        # Install Java (required for Allure CLI)
+        sudo apt-get update
+        sudo apt-get install -y default-jre
+        
+        # Download and install Allure CLI
+        wget -O allure-commandline.tgz \
+          "https://repo.maven.apache.org/maven2/io/qameta/allure/allure-commandline/2.24.0/allure-commandline-2.24.0.tgz"
+        tar -xzf allure-commandline.tgz
+        sudo mv allure-* /opt/allure
+        sudo ln -s /opt/allure/bin/allure /usr/local/bin/allure
+        
+        # Verify installation
+        allure --version
+        
     - name: Download all test artifacts
       uses: actions/download-artifact@v4
       with:
@@ -388,8 +409,7 @@ jobs:
         
     - name: Create Allure test results from pipeline data
       run: |
-        # Install Python script dependencies
-        pip install json2allure || pip install jq
+        # No additional dependencies needed - using standard Python libraries
         
         # Create a Python script to convert pipeline results to Allure format
         cat > create_allure_results.py << 'EOF'
@@ -476,6 +496,9 @@ jobs:
                 duration=30,  # Estimated duration
                 error_message=error_msg
             )
+            
+            # Generate unique test UUID for this result
+            test_uuid = result["uuid"]
             
             # Write individual test result
             with open(f"allure-results/{test_uuid}-result.json", "w") as f:
