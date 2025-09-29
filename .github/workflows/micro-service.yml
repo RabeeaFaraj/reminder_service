@@ -41,11 +41,20 @@ jobs:
       run: |
         python -m pip install --upgrade pip
         pip install -r requirements.txt
+        pip install allure-pytest  # Add Allure support
         
     - name: Run unit tests
       run: |
-        # Run your unittest files
-        pytest -v
+        # Run tests with Allure reporting
+        pytest -v --alluredir=allure-results
+        
+    - name: Upload Allure Results
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: unit-tests-allure-results
+        path: allure-results/
+        retention-days: 30
         
     - name: Code linting with flake8
       run: |
@@ -235,6 +244,96 @@ jobs:
           sleep 10
         done
         
+    - name: Run API Integration Tests
+      run: |
+        # Create integration tests for the live service
+        mkdir -p integration_tests
+        
+        # Create a simple integration test script with Allure support
+        cat > integration_tests/test_live_api.py << 'EOF'
+        import requests
+        import json
+        import os
+        import pytest
+        import allure
+        from datetime import datetime
+        
+        BASE_URL = os.getenv('REMINDER_SERVICE_URL', 'http://localhost:8000')
+        
+        @allure.feature("Health Check")
+        @allure.story("Service Health")
+        class TestHealthAPI:
+            @allure.title("Health endpoint returns healthy status")
+            @allure.description("Verify that the health endpoint returns a proper healthy response")
+            def test_health_endpoint(self):
+                with allure.step("Send GET request to /health"):
+                    response = requests.get(f"{BASE_URL}/health", timeout=10)
+                
+                with allure.step("Verify response status code is 200"):
+                    assert response.status_code == 200
+                    
+                with allure.step("Verify response contains healthy status"):
+                    data = response.json()
+                    assert data["status"] == "healthy"
+                    assert "timestamp" in data
+                    
+                allure.attach(json.dumps(data, indent=2), "Response Body", allure.attachment_type.JSON)
+                
+        @allure.feature("Service Status")
+        @allure.story("Service Information")
+        class TestStatusAPI:
+            @allure.title("Status endpoint returns service information")
+            def test_status_endpoint(self):
+                with allure.step("Send GET request to /status"):
+                    response = requests.get(f"{BASE_URL}/status", timeout=10)
+                
+                with allure.step("Verify response structure"):
+                    assert response.status_code == 200
+                    data = response.json()
+                    assert "service" in data
+                    assert "version" in data
+                    assert data["service"] == "Reminder Service"
+                    
+                allure.attach(json.dumps(data, indent=2), "Response Body", allure.attachment_type.JSON)
+                
+        @allure.feature("Reminder Processing")
+        @allure.story("Manual Reminder Execution")
+        class TestReminderAPI:
+            @allure.title("Run reminders endpoint processes successfully")
+            def test_run_reminders_endpoint(self):
+                with allure.step("Send POST request to /run-reminders"):
+                    response = requests.post(f"{BASE_URL}/run-reminders", timeout=30)
+                
+                with allure.step("Verify successful processing"):
+                    assert response.status_code == 200
+                    data = response.json()
+                    assert "processed" in data
+                    assert "timestamp" in data
+                    assert isinstance(data["processed"], int)
+                    assert data["processed"] >= 0
+                    
+                allure.attach(json.dumps(data, indent=2), "Response Body", allure.attachment_type.JSON)
+        EOF
+        
+        # Set environment variable for tests
+        export REMINDER_SERVICE_URL=http://${{ secrets.EC2_HOST }}:8000
+        
+        # Run the integration tests with Allure
+        pytest integration_tests/ -v --alluredir=allure-results
+        
+    - name: Upload API Test Results
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: api-tests-allure-results
+        path: allure-results/
+        retention-days: 30
+            break
+          fi
+          echo "Attempt $i: Service not ready, waiting..."
+          sleep 10
+        done
+        
 
   # Job 4: Performance & Load Tests
   performance-tests:
@@ -317,47 +416,210 @@ jobs:
       with:
         path: test-results
         
-    - name: Generate comprehensive test report
+    - name: Prepare test results for Allure
       run: |
-        mkdir -p final-report
+        mkdir -p allure-results
+        mkdir -p allure-report
         
-        # Create a summary report
-        cat > final-report/test-summary.md << EOF
-        # Reminder Service CI/CD Pipeline Report
-        
-        **Build Information:**
-        - Version: ${{ needs.build-and-deploy.outputs.REMINDER_SERVICE_VERSION }}
-        - Image Tag: ${{ needs.build-and-deploy.outputs.IMAGE_TAG }}
-        - Environment: ${{ github.event.inputs.environment || 'staging' }}
-        - Commit: ${{ github.sha }}
-        - Branch: ${{ github.ref_name }}
-        
-        **Pipeline Status:**
-        - Unit Tests: ${{ needs.unit-tests.result }}
-        - Build & Deploy: ${{ needs.build-and-deploy.result }}
-        - API Tests: ${{ needs.api-tests.result }}
-        - Performance Tests: ${{ needs.performance-tests.result }}
-        - Security Tests: ${{ needs.security-tests.result }}
-        
-        **Service Endpoints:**
-        - Health: http://${{ secrets.EC2_HOST }}:8000/health
-        - Status: http://${{ secrets.EC2_HOST }}:8000/status
-        - API Documentation: http://${{ secrets.EC2_HOST }}:8000/docs
-        
-        **Docker Hub:**
-        - Repository: ${{ secrets.DOCKERHUB_USERNAME }}/reminder-service
-        - Latest Tag: ${{ needs.build-and-deploy.outputs.IMAGE_TAG }}
+        # Create environment properties for Allure
+        cat > allure-results/environment.properties << EOF
+        Service=Reminder Service
+        Version=${{ needs.build-and-deploy.outputs.REMINDER_SERVICE_VERSION }}
+        Image.Tag=${{ needs.build-and-deploy.outputs.IMAGE_TAG }}
+        Environment=${{ github.event.inputs.environment || 'staging' }}
+        Commit=${{ github.sha }}
+        Branch=${{ github.ref_name }}
+        EC2.Host=${{ secrets.EC2_HOST }}
+        Docker.Repository=${{ secrets.DOCKERHUB_USERNAME }}/reminder-service
+        Build.Date=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
         EOF
         
-        echo "Generated test summary report"
-        cat final-report/test-summary.md
+        # Create categories for test classification
+        cat > allure-results/categories.json << 'EOF'
+        [
+          {
+            "name": "Unit Tests",
+            "messageRegex": ".*unit.*",
+            "traceRegex": ".*unit.*"
+          },
+          {
+            "name": "API Integration Tests", 
+            "messageRegex": ".*api.*",
+            "traceRegex": ".*api.*"
+          },
+          {
+            "name": "Performance Tests",
+            "messageRegex": ".*performance.*",
+            "traceRegex": ".*performance.*"
+          },
+          {
+            "name": "Security Tests",
+            "messageRegex": ".*security.*",
+            "traceRegex": ".*security.*"
+          },
+          {
+            "name": "Infrastructure Issues",
+            "messageRegex": ".*connection.*|.*timeout.*|.*network.*"
+          }
+        ]
+        EOF
         
-    - name: Upload final report
+    - name: Create Allure test results from pipeline data
+      run: |
+        # Install Python script dependencies
+        pip install json2allure || pip install jq
+        
+        # Create a Python script to convert pipeline results to Allure format
+        cat > create_allure_results.py << 'EOF'
+        import json
+        import os
+        import uuid
+        from datetime import datetime
+        
+        def create_test_result(name, status, description="", duration=0, error_message=""):
+            """Create an Allure test result JSON"""
+            test_uuid = str(uuid.uuid4())
+            
+            result = {
+                "uuid": test_uuid,
+                "historyId": name.replace(" ", "_").lower(),
+                "name": name,
+                "fullName": f"Pipeline.{name.replace(' ', '_')}",
+                "labels": [
+                    {"name": "suite", "value": "CI/CD Pipeline"},
+                    {"name": "story", "value": "Automated Testing"},
+                    {"name": "framework", "value": "GitHub Actions"}
+                ],
+                "status": status,
+                "statusDetails": {
+                    "message": error_message if error_message else f"{name} completed",
+                    "trace": error_message if error_message else ""
+                },
+                "stage": "finished",
+                "description": description,
+                "start": int(datetime.now().timestamp() * 1000) - duration * 1000,
+                "stop": int(datetime.now().timestamp() * 1000)
+            }
+            
+            return result
+        
+        # Pipeline job results
+        jobs = [
+            {
+                "name": "Unit Tests & Code Quality",
+                "status": "${{ needs.unit-tests.result }}",
+                "description": "Runs unit tests, code linting, and coverage analysis"
+            },
+            {
+                "name": "Build & Deploy to EC2", 
+                "status": "${{ needs.build-and-deploy.result }}",
+                "description": "Builds Docker image and deploys to EC2 instance"
+            },
+            {
+                "name": "API Integration Tests",
+                "status": "${{ needs.api-tests.result }}",
+                "description": "Tests live API endpoints on deployed service"
+            },
+            {
+                "name": "Performance & Load Tests",
+                "status": "${{ needs.performance-tests.result }}",
+                "description": "Load testing and response time validation"
+            },
+            {
+                "name": "Security Tests",
+                "status": "${{ needs.security-tests.result }}",
+                "description": "Security vulnerability scanning and analysis"
+            }
+        ]
+        
+        # Convert GitHub Actions status to Allure status
+        def convert_status(gh_status):
+            status_map = {
+                "success": "passed",
+                "failure": "failed", 
+                "cancelled": "broken",
+                "skipped": "skipped"
+            }
+            return status_map.get(gh_status, "unknown")
+        
+        # Create Allure test results
+        for i, job in enumerate(jobs):
+            allure_status = convert_status(job["status"])
+            error_msg = f"Job failed with status: {job['status']}" if allure_status == "failed" else ""
+            
+            result = create_test_result(
+                name=job["name"],
+                status=allure_status,
+                description=job["description"],
+                duration=30,  # Estimated duration
+                error_message=error_msg
+            )
+            
+            # Write individual test result
+            with open(f"allure-results/{test_uuid}-result.json", "w") as f:
+                json.dump(result, f, indent=2)
+        
+        print("Created Allure test results for all pipeline jobs")
+        EOF
+        
+        # Run the script to create test results
+        python create_allure_results.py
+        
+    - name: Generate Allure Report
+      run: |
+        # Generate the Allure report
+        allure generate allure-results --output allure-report --clean
+        
+        # Add custom information to the report
+        echo "Allure report generated successfully"
+        echo "Report contains results from:"
+        echo "- Unit Tests: ${{ needs.unit-tests.result }}"
+        echo "- Build & Deploy: ${{ needs.build-and-deploy.result }}"
+        echo "- API Tests: ${{ needs.api-tests.result }}"
+        echo "- Performance Tests: ${{ needs.performance-tests.result }}"
+        echo "- Security Tests: ${{ needs.security-tests.result }}"
+        
+    - name: Upload Allure Report
       uses: actions/upload-artifact@v4
       with:
-        name: final-test-report
-        path: final-report/
+        name: allure-report
+        path: allure-report/
         retention-days: 90
+        
+    - name: Deploy Allure Report to GitHub Pages
+      if: github.ref == 'refs/heads/main'
+      uses: peaceiris/actions-gh-pages@v3
+      with:
+        github_token: ${{ secrets.GITHUB_TOKEN }}
+        publish_dir: allure-report
+        destination_dir: allure-reports/${{ github.run_number }}
+        
+    - name: Comment PR with Allure Report Link
+      if: github.event_name == 'pull_request'
+      uses: actions/github-script@v6
+      with:
+        script: |
+          github.rest.issues.createComment({
+            issue_number: context.issue.number,
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            body: `## 📊 Allure Test Report
+            
+            **Pipeline Results:**
+            - ✅ Unit Tests: ${{ needs.unit-tests.result }}
+            - ✅ Build & Deploy: ${{ needs.build-and-deploy.result }} 
+            - ✅ API Tests: ${{ needs.api-tests.result }}
+            - ✅ Performance: ${{ needs.performance-tests.result }}
+            - ✅ Security: ${{ needs.security-tests.result }}
+            
+            **Service Info:**
+            - Version: ${{ needs.build-and-deploy.outputs.REMINDER_SERVICE_VERSION }}
+            - Image: ${{ needs.build-and-deploy.outputs.IMAGE_TAG }}
+            
+            📋 [View Detailed Allure Report](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
+            🔗 [Service Health Check](http://${{ secrets.EC2_HOST }}:8000/health)
+            📚 [API Documentation](http://${{ secrets.EC2_HOST }}:8000/docs)`
+          })
 
   # Job 7: Cleanup on failure
   cleanup-on-failure:
