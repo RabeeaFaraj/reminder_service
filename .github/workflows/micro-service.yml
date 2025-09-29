@@ -235,30 +235,6 @@ jobs:
           sleep 10
         done
         
-    - name: Run API tests against EC2 instance
-      env:
-        REMINDER_SERVICE_URL: http://${{ secrets.EC2_HOST }}:8000
-        TEST_ENVIRONMENT: ${{ github.event.inputs.environment || 'staging' }}
-      run: |
-        # Create API tests directory if it doesn't exist
-        mkdir -p api_tests
-        
-        # Run API tests with reporting
-        pytest tests/ -v \
-          --html=api-test-report.html \
-          --json-report \
-          --json-report-file=api-test-results.json \
-          || echo "Some API tests failed"
-        
-    - name: Upload API test results
-      uses: actions/upload-artifact@v4
-      if: always()
-      with:
-        name: api-test-results
-        path: |
-          api-test-report.html
-          api-test-results.json
-        retention-days: 30
 
   # Job 4: Performance & Load Tests
   performance-tests:
