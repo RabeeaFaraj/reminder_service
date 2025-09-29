@@ -328,12 +328,6 @@ jobs:
         name: api-tests-allure-results
         path: allure-results/
         retention-days: 30
-            break
-          fi
-          echo "Attempt $i: Service not ready, waiting..."
-          sleep 10
-        done
-        
 
   # Job 4: Performance & Load Tests
   performance-tests:
@@ -400,12 +394,12 @@ jobs:
         path: bandit-report.json
         retention-days: 30
 
-  # Job 6: Generate Final Report
-  generate-report:
+  # Job 6: Generate Allure Report
+  generate-allure-report:
     runs-on: ubuntu-latest
     needs: [unit-tests, build-and-deploy, api-tests, performance-tests, security-tests]
     if: always()
-    name: Generate Test Report
+    name: Generate Allure Test Report
     
     steps:
     - name: Checkout code
