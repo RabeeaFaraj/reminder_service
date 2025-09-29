@@ -230,7 +230,12 @@ jobs:
     - name: Install testing dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install pytest httpx requests pytest-html pytest-json-report
+        pip install pytest httpx requests pytest-html pytest-json-report allure-pytest
+        
+        # Verify allure-pytest is installed and working
+        pytest --version
+        python -c "import allure; print('✅ Allure module imported successfully')"
+        echo "✅ All testing dependencies installed successfully"
         
     - name: Wait for service to be ready
       run: |
