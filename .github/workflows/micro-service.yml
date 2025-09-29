@@ -143,8 +143,17 @@ jobs:
         script: |
           cd /home/ubuntu/reminder-service
           
-          # Stop existing containers
-          docker compose down || true
+          # Stop ALL existing containers and clean up
+          echo "=== Stopping and cleaning up existing containers ==="
+          docker compose down --remove-orphans || true
+          docker container prune -f || true
+          
+          # Kill any processes using port 8000
+          echo "=== Checking for processes using port 8000 ==="
+          lsof -ti:8000 | xargs -r kill -9 || echo "No processes found on port 8000"
+          
+          # Clean up any dangling containers
+          docker ps -a --filter "name=reminder-service" --format "{{.ID}}" | xargs -r docker rm -f || true
           
           # Setup environment file
           cp .env .env
@@ -159,15 +168,30 @@ jobs:
           echo "AWS_DEFAULT_REGION=${{ secrets.AWS_DEFAULT_REGION }}" >> .env
           echo "SNS_TOPIC_ARN=${{ secrets.SNS_TOPIC_ARN }}" >> .env
           
+          # Verify port 8000 is free
+          echo "=== Verifying port 8000 is available ==="
+          if lsof -Pi :8000 -sTCP:LISTEN -t >/dev/null ; then
+            echo "ERROR: Port 8000 is still in use!"
+            lsof -Pi :8000 -sTCP:LISTEN
+            exit 1
+          else
+            echo "✅ Port 8000 is available"
+          fi
+          
           # Pull latest image and start services
+          echo "=== Pulling latest images ==="
           docker compose pull
+          
+          echo "=== Starting services ==="
           docker compose up -d
           
           # Wait for service to be ready
           sleep 30
           
           # Health check
+          echo "=== Checking service status ==="
           docker compose ps
+          echo "=== Testing health endpoint ==="
           curl -f http://localhost:8000/health || echo "Health check failed"
 
     - id: parse_env
