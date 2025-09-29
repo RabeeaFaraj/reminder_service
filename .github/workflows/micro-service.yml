@@ -450,7 +450,6 @@ jobs:
                     {"name": "framework", "value": "GitHub Actions"},
                     {"name": "feature", "value": "Pipeline Execution"}
                 ],
-                ],
                 "status": status,
                 "statusDetails": {
                     "message": error_message if error_message else f"{name} completed",
