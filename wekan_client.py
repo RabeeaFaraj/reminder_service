@@ -18,7 +18,7 @@ class WekanClient:
     def __init__(self):
         """Initialize Wekan client with configuration from environment variables"""
         self.base_url = os.getenv('WEKAN_URL', 'http://localhost:80')
-        self.username = os.getenv('WEKAN_USER',"rabeeaFaraj")
+        self.username = os.getenv('WEKAN_USER',"RabeeaFaraj")
         self.password = os.getenv('WEKAN_PASSWORD',"123456789")
         self.token = None
         self.user_id = None

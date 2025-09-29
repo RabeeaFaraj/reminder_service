@@ -54,6 +54,7 @@ services:
     environment:
       # Wekan connection (connect to host's localhost:80)
       - WEKAN_URL=http://host.docker.internal:80
+      # - WEKAN_URL1=http://${EC2_HOST}:80
       - WEKAN_USER=${WEKAN_USER}
       - WEKAN_PASSWORD=${WEKAN_PASSWORD}
       
