@@ -1,0 +1,2 @@
+ERROR    wekan_client:wekan_client.py:236 Wekan API connection test failed: HTTPConnectionPool(host='localhost', port=80): Max retries exceeded with url: /api/version (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x7f458e528450>: Failed to establish a new connection: [Errno 111] Connection refused'))
+ERROR    sns_notifier:sns_notifier.py:207 ❌ SNS connection test error: Unable to locate credentials
