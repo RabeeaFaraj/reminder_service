@@ -40,7 +40,7 @@ services:
       # Performance settings
       - METEOR_SETTINGS={"public":{"sendStatistics":false},"defaultAuthenticationMethod":"default"}
     ports:
-      - "80:8080"  # Use different port (3001) to avoid conflict with your main Wekan
+      - "3001:8080"  # Use different port (3001) to avoid conflict with your main Wekan
     networks:
       - wekan-network
     # volumes:
