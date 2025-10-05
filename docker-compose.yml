@@ -40,7 +40,7 @@ services:
       # Performance settings
       - METEOR_SETTINGS={"public":{"sendStatistics":false},"defaultAuthenticationMethod":"default"}
     ports:
-      - "3001:8080"  # Use different port (3001) to avoid conflict with your main Wekan
+      - "80:8080"  # Use different port (3001) to avoid conflict with your main Wekan
     networks:
       - wekan-network
     # volumes:
@@ -48,7 +48,7 @@ services:
 
   # Reminder Service
   reminder-service:
-    image: rabeeafaraj/reminder-service:${DOCKER_IMAGE_TAG}
+    image: rabeeafaraj/reminder-service:${REMINDER_SERVICE_VERSION:-0.0.1}
     container_name: reminder-service
     restart: unless-stopped
     environment:
